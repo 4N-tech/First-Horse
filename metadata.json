@@ -1,0 +1,6 @@
+{
+  "name": "Nassij Factory - Clothing Manufacturing & Storefront",
+  "description": "منصة مصنع نسيج للملابس الجاهزة - متجر المنتجات ولوحة تحكم إدارة المصنع والإنتاج مع نظام صلاحيات متعدد المستويات",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
