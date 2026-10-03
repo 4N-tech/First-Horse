@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { ShoppingBag, Lock, Layers, Globe, Menu, X, ArrowLeft, Shirt } from 'lucide-react';
+import { ShoppingBag, Lock, Layers, Globe, Menu, X, ArrowLeft, Shirt, Search } from 'lucide-react';
 import { useI18n } from '../../lib/i18n.tsx';
 import { useAuth } from '../../lib/auth-context.tsx';
+import { useCart } from '../../lib/cart-context.tsx';
 import { Category } from '../../types/index.ts';
 import { api } from '../../lib/api.ts';
 
@@ -12,6 +13,8 @@ interface CustomerLayoutProps {
   onNavigateCategory: (slug: string) => void;
   onNavigateLogin: () => void;
   onNavigateAdmin: () => void;
+  onNavigateCart: () => void;
+  onNavigateLookup?: () => void;
 }
 
 export const CustomerLayout: React.FC<CustomerLayoutProps> = ({
@@ -21,12 +24,14 @@ export const CustomerLayout: React.FC<CustomerLayoutProps> = ({
   onNavigateCategory,
   onNavigateLogin,
   onNavigateAdmin,
+  onNavigateCart,
+  onNavigateLookup,
 }) => {
   const { t, lang, toggleLang } = useI18n();
   const { user } = useAuth();
+  const { totalItemsCount } = useCart();
   const [categories, setCategories] = useState<Category[]>([]);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [showCartDrawer, setShowCartDrawer] = useState(false);
 
   useEffect(() => {
     api.categories.getAll().then((res) => {
@@ -46,6 +51,15 @@ export const CustomerLayout: React.FC<CustomerLayoutProps> = ({
             <span>{t.factorySubtitle} | {t.phaseNotice}</span>
           </div>
           <div className="flex items-center gap-4">
+            {onNavigateLookup && (
+              <button
+                onClick={onNavigateLookup}
+                className="flex items-center gap-1 hover:text-white transition-colors cursor-pointer text-[11px]"
+              >
+                <Search className="h-3 w-3" />
+                <span>تتبع طلبك</span>
+              </button>
+            )}
             <button
               onClick={toggleLang}
               className="flex items-center gap-1 hover:text-white transition-colors cursor-pointer text-[11px]"
@@ -133,14 +147,14 @@ export const CustomerLayout: React.FC<CustomerLayoutProps> = ({
             {/* Cart & Mobile Hamburger */}
             <div className="flex items-center gap-2">
               <button
-                onClick={() => setShowCartDrawer(true)}
+                onClick={onNavigateCart}
                 className="relative p-2 rounded-xl text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors cursor-pointer flex items-center gap-1.5 text-xs font-medium border border-slate-200"
                 title={t.navCart}
               >
                 <ShoppingBag className="h-4 w-4 text-indigo-600" />
                 <span className="hidden sm:inline text-xs font-semibold">{t.navCart}</span>
                 <span className="bg-indigo-600 text-white text-[10px] font-bold h-4 w-4 rounded-full flex items-center justify-center">
-                  0
+                  {totalItemsCount}
                 </span>
               </button>
 
@@ -182,6 +196,37 @@ export const CustomerLayout: React.FC<CustomerLayoutProps> = ({
                 {c.name}
               </button>
             ))}
+            <div className="pt-2 border-t border-slate-100 space-y-1">
+              <button
+                onClick={() => {
+                  onNavigateCart();
+                  setMobileMenuOpen(false);
+                }}
+                className="flex items-center justify-between w-full px-3 py-2 rounded-lg text-sm font-bold text-indigo-700 bg-indigo-50"
+              >
+                <div className="flex items-center gap-2">
+                  <ShoppingBag className="h-4 w-4 text-indigo-600" />
+                  <span>سلة المشتريات</span>
+                </div>
+                <span className="bg-indigo-600 text-white text-[10px] font-bold h-5 w-5 rounded-full flex items-center justify-center">
+                  {totalItemsCount}
+                </span>
+              </button>
+
+              {onNavigateLookup && (
+                <button
+                  onClick={() => {
+                    onNavigateLookup();
+                    setMobileMenuOpen(false);
+                  }}
+                  className="flex items-center gap-2 w-full px-3 py-2 rounded-lg text-sm font-semibold text-slate-700 hover:bg-slate-100"
+                >
+                  <Search className="h-4 w-4 text-slate-500" />
+                  <span>تتبع طلبك</span>
+                </button>
+              )}
+            </div>
+
             <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
               <button
                 onClick={onNavigateLogin}
@@ -200,48 +245,6 @@ export const CustomerLayout: React.FC<CustomerLayoutProps> = ({
 
       {/* Main Page Content */}
       <main className="flex-1">{children}</main>
-
-      {/* Cart Placeholder Drawer */}
-      {showCartDrawer && (
-        <div className="fixed inset-0 z-50 overflow-hidden">
-          <div className="fixed inset-0 bg-slate-900/60 transition-opacity" onClick={() => setShowCartDrawer(false)} />
-          <div className="fixed inset-y-0 end-0 max-w-full flex">
-            <div className="w-screen max-w-md bg-white shadow-2xl flex flex-col p-6">
-              <div className="flex items-center justify-between border-b border-slate-100 pb-4">
-                <div className="flex items-center gap-2">
-                  <ShoppingBag className="h-5 w-5 text-indigo-600" />
-                  <h3 className="font-bold text-base text-slate-900">{t.navCart}</h3>
-                </div>
-                <button
-                  onClick={() => setShowCartDrawer(false)}
-                  className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-                >
-                  <X className="h-5 w-5" />
-                </button>
-              </div>
-
-              <div className="flex-1 flex flex-col items-center justify-center text-center p-6">
-                <div className="w-16 h-16 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-500 mb-3">
-                  <ShoppingBag className="h-8 w-8" />
-                </div>
-                <h4 className="font-bold text-slate-800 text-sm">سلة المشتريات فارغة حالياً</h4>
-                <p className="text-xs text-slate-500 mt-1 max-w-xs">
-                  هذا العنصر هو واجهة تجريبية للمرحلة الأولى. ستتاح وظائف إضافة السلة وإتمام الطلبات بالتفصيل في المرحلة القادمة.
-                </p>
-              </div>
-
-              <div className="border-t border-slate-100 pt-4">
-                <button
-                  onClick={() => setShowCartDrawer(false)}
-                  className="w-full bg-slate-900 text-white rounded-xl py-2.5 text-xs font-bold hover:bg-slate-800"
-                >
-                  متابعة التصفح
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Footer */}
       <footer className="border-t border-slate-200 bg-white mt-16 text-slate-600 text-xs">

@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   LayoutDashboard,
   ShoppingBag,
+  Boxes,
   Layers,
   FolderTree,
   Users,
@@ -20,10 +21,12 @@ import {
 import { useAuth } from '../../lib/auth-context.tsx';
 import { useI18n } from '../../lib/i18n.tsx';
 import { RoleBadge } from '../ui/Badge.tsx';
+import { api } from '../../lib/api.ts';
 
 export type AdminRoute =
   | 'dashboard'
   | 'orders'
+  | 'inventory'
   | 'products'
   | 'categories'
   | 'customers'
@@ -50,9 +53,44 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
   const [showNotificationsModal, setShowNotificationsModal] = useState(false);
   const [isSwitchingRole, setIsSwitchingRole] = useState(false);
 
+  // Live Internal Notifications State (Requirement 21)
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  const loadNotifications = async () => {
+    try {
+      const res = await api.orders.getNotifications();
+      if (res.success) {
+        setNotifications(res.data);
+        setUnreadCount(res.unread_count || 0);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  useEffect(() => {
+    if (user) {
+      loadNotifications();
+      const interval = setInterval(loadNotifications, 30000);
+      return () => clearInterval(interval);
+    }
+  }, [user]);
+
+  const handleMarkAllRead = async () => {
+    try {
+      await api.orders.markAllNotificationsRead();
+      setUnreadCount(0);
+      setNotifications((prev) => prev.map((n) => ({ ...n, is_read: 1 })));
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   const navItems: { id: AdminRoute; label: string; icon: React.ReactNode; requiresAdmin?: boolean }[] = [
     { id: 'dashboard', label: t.navDashboard, icon: <LayoutDashboard className="h-4 w-4" /> },
     { id: 'orders', label: t.navOrders, icon: <ShoppingBag className="h-4 w-4" /> },
+    { id: 'inventory', label: t.navInventory, icon: <Boxes className="h-4 w-4" /> },
     { id: 'products', label: t.navProducts, icon: <Layers className="h-4 w-4" /> },
     { id: 'categories', label: t.navCategories, icon: <FolderTree className="h-4 w-4" /> },
     { id: 'customers', label: t.navCustomers, icon: <Users className="h-4 w-4" /> },
@@ -267,14 +305,21 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
               {lang === 'ar' ? 'English' : 'العربية'}
             </button>
 
-            {/* Notifications Placeholder */}
+            {/* Notifications with real badge and drawer */}
             <button
-              onClick={() => setShowNotificationsModal(true)}
+              onClick={() => {
+                setShowNotificationsModal(true);
+                loadNotifications();
+              }}
               className="relative p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors cursor-pointer"
-              title="الإشعارات"
+              title="مركز التنبيهات الداخلية"
             >
               <Bell className="h-4 w-4" />
-              <span className="absolute top-1.5 end-1.5 w-2 h-2 rounded-full bg-indigo-600" />
+              {unreadCount > 0 && (
+                <span className="absolute top-1 end-1 min-w-4 h-4 px-1 rounded-full bg-rose-600 text-white font-bold text-[10px] flex items-center justify-center">
+                  {unreadCount}
+                </span>
+              )}
             </button>
 
             {/* User Profile Pill */}
@@ -303,30 +348,63 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
         <main className="flex-1 p-4 sm:p-6 lg:p-8 overflow-y-auto">{children}</main>
       </div>
 
-      {/* Notifications Modal Placeholder */}
+      {/* Live Internal Notifications Modal (Requirement 21) */}
       {showNotificationsModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50">
-          <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-xl">
-            <div className="flex items-center justify-between mb-4">
+          <div className="bg-white rounded-2xl p-5 max-w-md w-full shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2">
                 <Bell className="h-5 w-5 text-indigo-600" />
-                <h4 className="font-bold text-slate-900 text-sm">مركز التنبيهات والإشعارات</h4>
+                <h4 className="font-bold text-slate-900 text-sm">مركز التنبيهات الداخلية</h4>
               </div>
-              <button
-                onClick={() => setShowNotificationsModal(false)}
-                className="text-slate-400 hover:text-slate-600 p-1"
-              >
-                <X className="h-4 w-4" />
-              </button>
+              <div className="flex items-center gap-2">
+                {unreadCount > 0 && (
+                  <button
+                    onClick={handleMarkAllRead}
+                    className="text-xs text-indigo-600 hover:text-indigo-800 font-semibold cursor-pointer"
+                  >
+                    تحديد الكل كمقروء
+                  </button>
+                )}
+                <button
+                  onClick={() => setShowNotificationsModal(false)}
+                  className="text-slate-400 hover:text-slate-600 p-1"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
             </div>
-            <p className="text-xs text-slate-600 leading-relaxed mb-4">
-              نظام التنبيهات معد للمرحلة الأولى. سيتم ربط التنبيهات الحية بتحديثات الإنتاج والطلبات الجديدة في المراحل التالية.
-            </p>
+
+            <div className="space-y-2 max-h-72 overflow-y-auto pe-1">
+              {notifications.length > 0 ? (
+                notifications.map((n) => (
+                  <div
+                    key={n.id}
+                    className={`p-3 rounded-xl border text-xs space-y-1 transition-colors ${
+                      n.is_read === 0
+                        ? 'bg-indigo-50/70 border-indigo-200 text-indigo-950'
+                        : 'bg-slate-50 border-slate-100 text-slate-700'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold">{n.title}</span>
+                      <span className="text-[10px] text-slate-400 font-mono">{n.created_at}</span>
+                    </div>
+                    <p className="leading-relaxed text-[11px]">{n.message}</p>
+                  </div>
+                ))
+              ) : (
+                <div className="py-8 text-center text-slate-400 text-xs">
+                  لا توجد إشعارات جديدة حاليًا.
+                </div>
+              )}
+            </div>
+
             <button
               onClick={() => setShowNotificationsModal(false)}
-              className="w-full bg-slate-900 text-white text-xs font-bold py-2 rounded-xl hover:bg-slate-800"
+              className="w-full bg-slate-900 text-white text-xs font-bold py-2.5 rounded-xl hover:bg-slate-800 transition-colors cursor-pointer"
             >
-              حسناً
+              إغلاق
             </button>
           </div>
         </div>

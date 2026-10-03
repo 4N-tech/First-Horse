@@ -1,6 +1,7 @@
 import express from 'express';
 import cookieParser from 'cookie-parser';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { getDb } from './src/server/db/database.ts';
 
@@ -12,6 +13,8 @@ import ordersRoutes from './src/server/routes/orders.routes.ts';
 import usersRoutes from './src/server/routes/users.routes.ts';
 import customersRoutes from './src/server/routes/customers.routes.ts';
 import dashboardRoutes from './src/server/routes/dashboard.routes.ts';
+import uploadRoutes from './src/server/routes/upload.routes.ts';
+import inventoryRoutes from './src/server/routes/inventory.routes.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -26,6 +29,13 @@ async function createServer() {
   app.use(express.urlencoded({ extended: true }));
   app.use(cookieParser());
 
+  // Ensure uploads directory exists and is served statically
+  const uploadsDir = path.resolve(__dirname, 'uploads');
+  if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+  }
+  app.use('/uploads', express.static(uploadsDir));
+
   // Initialize SQLite database
   await getDb();
   console.log('Database initialized successfully.');
@@ -38,13 +48,16 @@ async function createServer() {
   app.use('/api/admin/employees', usersRoutes);
   app.use('/api/admin/customers', customersRoutes);
   app.use('/api/admin/dashboard', dashboardRoutes);
+  app.use('/api/inventory', inventoryRoutes);
+  app.use('/api/admin/inventory', inventoryRoutes);
+  app.use('/api/upload', uploadRoutes);
 
   // Health check endpoint
   app.get('/api/health', (req, res) => {
     res.json({
       status: 'healthy',
-      app: 'Nassij Factory Web App',
-      phase: 1,
+      app: 'First Horse Factory Web App',
+      phase: 2,
       timestamp: new Date().toISOString(),
     });
   });

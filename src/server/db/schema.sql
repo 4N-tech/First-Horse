@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS products (
   description TEXT,
   base_price REAL NOT NULL,
   image_url TEXT,
+  additional_images TEXT DEFAULT '[]',
   is_active INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -53,6 +54,7 @@ CREATE TABLE IF NOT EXISTS product_variants (
   color TEXT NOT NULL,
   price REAL NOT NULL,
   stock_quantity INTEGER NOT NULL DEFAULT 0,
+  low_stock_threshold INTEGER NOT NULL DEFAULT 10,
   is_active INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -108,6 +110,68 @@ CREATE TABLE IF NOT EXISTS order_items (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- 9. Order Status History (Phase 4 Audit & Workflow tracking)
+CREATE TABLE IF NOT EXISTS order_status_history (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+  old_status TEXT,
+  new_status TEXT NOT NULL,
+  changed_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  note TEXT,
+  is_override INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- 10. Order Assignment History (Phase 4 Employee Assignment tracking)
+CREATE TABLE IF NOT EXISTS order_assignment_history (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+  previous_employee_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  new_employee_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  assigned_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  note TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- 11. Activity Logs (Phase 4 Administrative Audit Log)
+CREATE TABLE IF NOT EXISTS activity_logs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  actor_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  action TEXT NOT NULL,
+  entity_type TEXT NOT NULL,
+  entity_id INTEGER,
+  metadata TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- 12. Internal Notifications (Phase 4 Alert System)
+CREATE TABLE IF NOT EXISTS internal_notifications (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  message TEXT NOT NULL,
+  type TEXT NOT NULL DEFAULT 'INFO',
+  entity_type TEXT,
+  entity_id INTEGER,
+  is_read INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- 13. Inventory Movements Table (Phase 5 Immutable Stock Ledger)
+CREATE TABLE IF NOT EXISTS inventory_movements (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  variant_id INTEGER NOT NULL REFERENCES product_variants(id) ON DELETE CASCADE,
+  movement_type TEXT NOT NULL,
+  quantity_delta INTEGER NOT NULL,
+  stock_before INTEGER NOT NULL,
+  stock_after INTEGER NOT NULL,
+  reference_type TEXT,
+  reference_id INTEGER,
+  note TEXT,
+  created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- Indexes for performance & query optimization
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 CREATE INDEX IF NOT EXISTS idx_categories_slug ON categories(slug);
@@ -115,9 +179,20 @@ CREATE INDEX IF NOT EXISTS idx_products_category_id ON products(category_id);
 CREATE INDEX IF NOT EXISTS idx_products_slug ON products(slug);
 CREATE INDEX IF NOT EXISTS idx_variants_product_id ON product_variants(product_id);
 CREATE INDEX IF NOT EXISTS idx_variants_sku ON product_variants(sku);
+CREATE INDEX IF NOT EXISTS idx_variants_low_stock ON product_variants(low_stock_threshold);
 CREATE INDEX IF NOT EXISTS idx_addresses_customer_id ON customer_addresses(customer_id);
 CREATE INDEX IF NOT EXISTS idx_orders_customer_id ON orders(customer_id);
 CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
 CREATE INDEX IF NOT EXISTS idx_orders_assigned_to ON orders(assigned_to);
 CREATE INDEX IF NOT EXISTS idx_order_items_order_id ON order_items(order_id);
 CREATE INDEX IF NOT EXISTS idx_order_items_product_id ON order_items(product_id);
+CREATE INDEX IF NOT EXISTS idx_status_hist_order ON order_status_history(order_id);
+CREATE INDEX IF NOT EXISTS idx_assign_hist_order ON order_assignment_history(order_id);
+CREATE INDEX IF NOT EXISTS idx_activity_logs_actor ON activity_logs(actor_id);
+CREATE INDEX IF NOT EXISTS idx_activity_logs_created ON activity_logs(created_at);
+CREATE INDEX IF NOT EXISTS idx_notifications_user ON internal_notifications(user_id);
+CREATE INDEX IF NOT EXISTS idx_inv_movements_variant ON inventory_movements(variant_id);
+CREATE INDEX IF NOT EXISTS idx_inv_movements_created ON inventory_movements(created_at);
+CREATE INDEX IF NOT EXISTS idx_inv_movements_type ON inventory_movements(movement_type);
+CREATE INDEX IF NOT EXISTS idx_inv_movements_ref ON inventory_movements(reference_type, reference_id);
+

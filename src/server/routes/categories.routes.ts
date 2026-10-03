@@ -1,11 +1,22 @@
 import { Router, Request, Response } from 'express';
-import { query, queryOne, execute } from '../db/database.ts';
+import { query, queryOne, execute, transaction } from '../db/database.ts';
 import { requireAuth, requirePermission, AuthRequest } from '../middleware/auth.ts';
 import { Category } from '../../types/index.ts';
 
 const router = Router();
 
-// Public: Get all active categories
+// Helper to generate a clean URL-friendly slug from Arabic/English text
+function slugify(text: string): string {
+  const cleaned = text
+    .trim()
+    .toLowerCase()
+    .replace(/[\s\t\n]+/g, '-')
+    .replace(/[^\w\u0600-\u06FF\-]/g, '')
+    .replace(/-+/g, '-');
+  return cleaned || `cat-${Date.now()}`;
+}
+
+// Public: Get all active categories with product counts (ordered by sort_order)
 router.get('/', async (req: Request, res: Response) => {
   try {
     const categories = await query<Category>(
@@ -22,7 +33,7 @@ router.get('/', async (req: Request, res: Response) => {
   }
 });
 
-// Admin: Get all categories including inactive ones
+// Admin: Get all categories including inactive ones with full product count
 router.get('/admin', requireAuth, requirePermission('manage_categories'), async (req: AuthRequest, res: Response) => {
   try {
     const categories = await query<Category>(
@@ -63,32 +74,50 @@ router.get('/:idOrSlug', async (req: Request, res: Response) => {
 // Admin/Manager: Create Category
 router.post('/', requireAuth, requirePermission('manage_categories'), async (req: AuthRequest, res: Response) => {
   try {
-    const { name, slug, description, image_url, sort_order } = req.body;
+    const { name, description, image_url, sort_order, is_active } = req.body;
+    let { slug } = req.body;
 
-    if (!name || !slug) {
-      return res.status(400).json({ success: false, error: 'اسم التصنيف والرابط الدلالي (Slug) مطلوبان' });
+    if (!name || !name.trim()) {
+      return res.status(400).json({ success: false, error: 'اسم القسم مطلوب ولا يمكن تركه فارغاً' });
     }
 
-    // Check slug uniqueness
-    const existing = await queryOne('SELECT id FROM categories WHERE slug = ?', [slug.trim().toLowerCase()]);
-    if (existing) {
-      return res.status(400).json({ success: false, error: 'الرابط الدلالي (Slug) مستخدم بالفعل' });
+    // Auto-generate slug if not provided
+    if (!slug || !slug.trim()) {
+      slug = slugify(name);
+    } else {
+      slug = slugify(slug);
     }
+
+    // Check duplicate name
+    const existingName = await queryOne('SELECT id FROM categories WHERE LOWER(TRIM(name)) = LOWER(?)', [name.trim()]);
+    if (existingName) {
+      return res.status(400).json({ success: false, error: 'اسم هذا القسم مستخدم بالفعل، يرجى اختيار اسم فريد' });
+    }
+
+    // Check duplicate slug
+    const existingSlug = await queryOne('SELECT id FROM categories WHERE slug = ?', [slug]);
+    if (existingSlug) {
+      slug = `${slug}-${Date.now().toString().slice(-4)}`;
+    }
+
+    const sortOrderNum = !isNaN(Number(sort_order)) ? Number(sort_order) : 0;
+    const activeStatus = is_active !== undefined ? (is_active ? 1 : 0) : 1;
 
     const result = await execute(
       `INSERT INTO categories (name, slug, description, image_url, sort_order, is_active)
-       VALUES (?, ?, ?, ?, ?, 1)`,
+       VALUES (?, ?, ?, ?, ?, ?)`,
       [
         name.trim(),
-        slug.trim().toLowerCase(),
-        description || null,
-        image_url || null,
-        sort_order !== undefined ? Number(sort_order) : 0,
+        slug,
+        description ? description.trim() : null,
+        image_url ? image_url.trim() : null,
+        sortOrderNum,
+        activeStatus,
       ]
     );
 
     const created = await queryOne<Category>('SELECT * FROM categories WHERE id = ?', [result.lastInsertRowid]);
-    return res.status(201).json({ success: true, data: created, message: 'تم إنشاء التصنيف بنجاح' });
+    return res.status(201).json({ success: true, data: created, message: 'تم إنشاء القسم بنجاح' });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message });
   }
@@ -98,17 +127,32 @@ router.post('/', requireAuth, requirePermission('manage_categories'), async (req
 router.put('/:id', requireAuth, requirePermission('manage_categories'), async (req: AuthRequest, res: Response) => {
   try {
     const id = Number(req.params.id);
-    const { name, slug, description, image_url, sort_order, is_active } = req.body;
+    const { name, description, image_url, sort_order, is_active } = req.body;
+    let { slug } = req.body;
 
     const existing = await queryOne<Category>('SELECT * FROM categories WHERE id = ?', [id]);
     if (!existing) {
-      return res.status(404).json({ success: false, error: 'التصنيف غير موجود' });
+      return res.status(404).json({ success: false, error: 'القسم المطلوب غير موجود' });
     }
 
-    if (slug && slug !== existing.slug) {
-      const duplicate = await queryOne('SELECT id FROM categories WHERE slug = ? AND id != ?', [slug.trim().toLowerCase(), id]);
-      if (duplicate) {
-        return res.status(400).json({ success: false, error: 'الرابط الدلالي (Slug) مستخدم بالفعل في تصنيف آخر' });
+    if (name && name.trim()) {
+      const duplicateName = await queryOne(
+        'SELECT id FROM categories WHERE LOWER(TRIM(name)) = LOWER(?) AND id != ?',
+        [name.trim(), id]
+      );
+      if (duplicateName) {
+        return res.status(400).json({ success: false, error: 'اسم هذا القسم مستخدم بالفعل في قسم آخر' });
+      }
+    }
+
+    if (slug && slug.trim()) {
+      slug = slugify(slug);
+      const duplicateSlug = await queryOne(
+        'SELECT id FROM categories WHERE slug = ? AND id != ?',
+        [slug, id]
+      );
+      if (duplicateSlug) {
+        return res.status(400).json({ success: false, error: 'الرابط الدلالي (Slug) مستخدم بالفعل لقسم آخر' });
       }
     }
 
@@ -124,40 +168,109 @@ router.put('/:id', requireAuth, requirePermission('manage_categories'), async (r
        WHERE id = ?`,
       [
         name ? name.trim() : null,
-        slug ? slug.trim().toLowerCase() : null,
+        slug ? slug : null,
         description !== undefined ? description : null,
         image_url !== undefined ? image_url : null,
-        sort_order !== undefined ? Number(sort_order) : null,
+        sort_order !== undefined && !isNaN(Number(sort_order)) ? Number(sort_order) : null,
         is_active !== undefined ? (is_active ? 1 : 0) : null,
         id,
       ]
     );
 
     const updated = await queryOne<Category>('SELECT * FROM categories WHERE id = ?', [id]);
-    return res.json({ success: true, data: updated, message: 'تم تحديث التصنيف بنجاح' });
+    return res.json({ success: true, data: updated, message: 'تم تحديث بيانات القسم بنجاح' });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message });
   }
 });
 
-// Admin/Manager: Delete Category (enforcing foreign key safety)
+// Admin/Manager: Toggle Active/Inactive Status
+router.patch('/:id/toggle-status', requireAuth, requirePermission('manage_categories'), async (req: AuthRequest, res: Response) => {
+  try {
+    const id = Number(req.params.id);
+    const existing = await queryOne<Category>('SELECT id, is_active, name FROM categories WHERE id = ?', [id]);
+    if (!existing) {
+      return res.status(404).json({ success: false, error: 'القسم غير موجود' });
+    }
+
+    const newStatus = existing.is_active === 1 ? 0 : 1;
+    await execute("UPDATE categories SET is_active = ?, updated_at = datetime('now') WHERE id = ?", [newStatus, id]);
+
+    return res.json({
+      success: true,
+      data: { id, is_active: newStatus },
+      message: newStatus === 1 ? `تم تفعيل قسم (${existing.name}) بنجاح` : `تم تعطيل قسم (${existing.name}) بنجاح`,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Admin/Manager: Move products from one category to another (Optionally delete the source category)
+router.post('/:id/move-products', requireAuth, requirePermission('manage_categories'), async (req: AuthRequest, res: Response) => {
+  try {
+    const sourceId = Number(req.params.id);
+    const { target_category_id, and_delete } = req.body;
+
+    if (!target_category_id || Number(target_category_id) === sourceId) {
+      return res.status(400).json({ success: false, error: 'يرجى اختيار قسم وجهة مختلف لنقل المنتجات إليه' });
+    }
+
+    const targetCategory = await queryOne('SELECT id, name FROM categories WHERE id = ?', [Number(target_category_id)]);
+    if (!targetCategory) {
+      return res.status(404).json({ success: false, error: 'القسم المستهدف لنقل المنتجات غير موجود' });
+    }
+
+    await transaction(async () => {
+      // Move all products
+      await execute(
+        "UPDATE products SET category_id = ?, updated_at = datetime('now') WHERE category_id = ?",
+        [Number(target_category_id), sourceId]
+      );
+
+      // If delete requested, safely delete empty source category
+      if (and_delete) {
+        await execute('DELETE FROM categories WHERE id = ?', [sourceId]);
+      }
+    });
+
+    return res.json({
+      success: true,
+      message: `تم نقل المنتجات بنجاح إلى قسم (${targetCategory.name})${and_delete ? ' وحذف القسم السابق' : ''}`,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Admin/Manager: Safe Delete Category
 router.delete('/:id', requireAuth, requirePermission('manage_categories'), async (req: AuthRequest, res: Response) => {
   try {
     const id = Number(req.params.id);
+    const category = await queryOne<Category>('SELECT id, name FROM categories WHERE id = ?', [id]);
+    if (!category) {
+      return res.status(404).json({ success: false, error: 'القسم غير موجود' });
+    }
+
     const productCount = await queryOne<{ count: number }>(
       'SELECT COUNT(*) as count FROM products WHERE category_id = ?',
       [id]
     );
 
-    if (productCount && productCount.count > 0) {
+    const count = productCount?.count || 0;
+    if (count > 0) {
       return res.status(400).json({
         success: false,
-        error: `لا يمكن حذف هذا التصنيف لوجود (${productCount.count}) منتج مرتبط به. يرجى نقل أو حذف المنتجات أولاً.`,
+        error: 'لا يمكن حذف هذا القسم لأنه يحتوي على منتجات.',
+        product_count: count,
+        can_move_or_deactivate: true,
+        category_id: id,
+        category_name: category.name,
       });
     }
 
     await execute('DELETE FROM categories WHERE id = ?', [id]);
-    return res.json({ success: true, message: 'تم حذف التصنيف بنجاح' });
+    return res.json({ success: true, message: `تم حذف قسم (${category.name}) بنجاح` });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message });
   }

@@ -13,6 +13,7 @@ export interface Translations {
   navCart: string;
   navDashboard: string;
   navOrders: string;
+  navInventory: string;
   navCustomers: string;
   navEmployees: string;
   navReports: string;
@@ -82,6 +83,7 @@ const translations: Record<Language, Translations> = {
     navCart: 'سلة المشتريات',
     navDashboard: 'لوحة التحكم',
     navOrders: 'إدارة الطلبات',
+    navInventory: 'المخزون وحركة الرصيد',
     navCustomers: 'سجل العملاء',
     navEmployees: 'فريق العمل والموظفين',
     navReports: 'التقارير والمؤشرات',
@@ -143,6 +145,7 @@ const translations: Record<Language, Translations> = {
     navCart: 'Cart',
     navDashboard: 'Dashboard',
     navOrders: 'Orders',
+    navInventory: 'Inventory & Stock',
     navCustomers: 'Customers',
     navEmployees: 'Employees',
     navReports: 'Reports',

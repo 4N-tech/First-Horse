@@ -1,4 +1,4 @@
-import { Request, Response, NextFunction } from 'express';
+import type { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { queryOne } from '../db/database.ts';
 import { User, UserRole, Permission, ROLE_PERMISSIONS } from '../../types/index.ts';
